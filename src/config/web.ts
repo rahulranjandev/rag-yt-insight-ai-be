@@ -1,0 +1,10 @@
+import { registerAs } from '@nestjs/config';
+
+export default registerAs('WEB', () => ({
+  ACCESS_TOKEN: process.env.WEB_JWT_ACCESS_TOKEN_SECRET,
+  ACCESS_TOKEN_EXPIRATION_TIME: process.env.WEB_ACCESS_TOKEN_EXPIRATION_TIME,
+  REFRESH_TOKEN: process.env.WEB_JWT_REFRESH_TOKEN_SECRET,
+  REFRESH_TOKEN_EXPIRATION_TIME:
+    process.env.WEB_JWT_REFRESH_TOKEN_EXPIRATION_TIME,
+  NEXTJS_JWT_TOKEN: process.env.WEB_NEXTJS_JWT_TOKEN,
+}));
