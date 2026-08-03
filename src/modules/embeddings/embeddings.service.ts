@@ -7,20 +7,23 @@ export class EmbeddingsService {
   private readonly embeddings: OpenAIEmbeddings;
 
   constructor() {
-    const model = process.env.OPENAI_MODEL;
-    if (!model) {
-      throw new Error('OPENAI_MODEL is not set');
+    const embeddingModel = process.env.OPENROUTER_EMBEDDING_MODEL;
+    if (!embeddingModel) {
+      throw new Error('OPENAI_EMBEDDING_MODEL (or OPENAI_MODEL) is not set');
     }
 
-    const baseURL = process.env.OPENAI_BASE_URL;
+    const baseURL = process.env.OPENROUTER_EMBEDDING_BASE_URL;
     if (!baseURL) {
-      throw new Error('OPENAI_BASE_URL is not set');
+      throw new Error(
+        'OPENAI_EMBEDDING_BASE_URL (or OPENROUTER_EMBEDDING_BASE_URL) is not set',
+      );
     }
     this.logger.log(`Using OpenAI API base URL: ${baseURL}`);
+    this.logger.log(`Using embedding model: ${embeddingModel}`);
 
-    const apiKey = process.env.OPENAI_API_KEY;
+    const apiKey = process.env.OPENROUTER_API_KEY;
     if (!apiKey) {
-      throw new Error('OPENAI_API_KEY is not set');
+      throw new Error('OPENAI_API_KEY (or OPENROUTER_API_KEY) is not set');
     }
 
     this.embeddings = new OpenAIEmbeddings({
@@ -28,19 +31,27 @@ export class EmbeddingsService {
         baseURL,
         apiKey,
       },
-      model,
+      model: embeddingModel,
+      // OpenRouter/NVIDIA returns floating-point vectors. The OpenAI SDK's
+      // default base64 format is not supported by this model and OpenRouter
+      // responds with an error object instead of an embeddings data array.
+      encodingFormat: 'float',
     });
   }
 
   async embedText(text: string): Promise<number[]> {
+    this.logger.log(`Embedding text: ${text.length} characters`);
     const cleaned = this.cleanText(text);
     if (!cleaned) return [];
+    this.logger.log(`Done text length: ${cleaned.length} characters`);
     return this.embeddings.embedQuery(cleaned);
   }
 
   async embedDocuments(texts: string[]): Promise<number[][]> {
+    this.logger.log(`Embedding ${texts.length} documents`);
     const cleanedTexts = texts.map((t) => this.cleanText(t)).filter(Boolean);
     if (cleanedTexts.length === 0) return [];
+    this.logger.log(`Done embedding ${cleanedTexts.length} documents`);
     return this.embeddings.embedDocuments(cleanedTexts);
   }
 

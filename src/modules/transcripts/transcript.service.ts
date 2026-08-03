@@ -2,13 +2,33 @@ import { Injectable, Logger } from '@nestjs/common';
 import { extractYoutubeId } from '@app/utils/youtube.util';
 import axios from 'axios';
 
+export interface YoutubeMetadataResponse {
+  youtubeId: string;
+  title: string;
+  channel: string;
+  duration: number;
+  description: string;
+  thumbnail: string;
+}
+
+export interface YoutubeTranscriptSegment {
+  text: string;
+  start: number;
+  duration: number;
+}
+
+export interface YoutubeTranscriptResponse {
+  youtubeId: string;
+  transcript: YoutubeTranscriptSegment[];
+}
+
 @Injectable()
 export class TranscriptService {
   private readonly logger = new Logger(TranscriptService.name);
 
-  async fetchTranscript(url: string) {
-    const videoId = extractYoutubeId(url);
-    this.logger.debug(`Extracted video ID: ${videoId} from URL: ${url}`);
+  async fetchTranscript(url: string): Promise<YoutubeTranscriptResponse> {
+    const youtubeId = extractYoutubeId(url);
+    this.logger.log(`Extracted YouTube ID: ${youtubeId} from URL: ${url}`);
 
     const apiURL = process.env.YOUTUBE_TRANSCRIPT_API_URL;
     if (!apiURL) {
@@ -18,26 +38,24 @@ export class TranscriptService {
       throw new Error('Internal server error');
     }
 
-    const requestURL = `${apiURL}/transcript/${videoId}`;
+    const requestURL = `${apiURL}/transcript/${youtubeId}`;
 
     try {
-      const response = await axios.get(requestURL);
-      this.logger.debug(
-        `Received transcript data for video ID ${videoId}: ${JSON.stringify(response.data)}`,
-      );
+      const response = await axios.get<YoutubeTranscriptResponse>(requestURL);
+      this.logger.log(`Received transcript data for YouTube ID ${youtubeId}: `);
 
       return response.data;
     } catch (error: any) {
       this.logger.error(
-        `Failed to fetch transcript for video ID ${videoId}: ${error.message}`,
+        `Failed to fetch transcript for YouTube ID ${youtubeId}: ${error.message}`,
       );
       throw new Error('Failed to fetch transcript');
     }
   }
 
-  async fetchMetadata(url: string) {
-    const videoId = extractYoutubeId(url);
-    this.logger.debug(`Extracted video ID: ${videoId} from URL: ${url}`);
+  async fetchMetadata(url: string): Promise<YoutubeMetadataResponse> {
+    const youtubeId = extractYoutubeId(url);
+    this.logger.log(`Extracted YouTube ID: ${youtubeId} from URL: ${url}`);
 
     const apiURL = process.env.YOUTUBE_TRANSCRIPT_API_URL;
     if (!apiURL) {
@@ -47,18 +65,16 @@ export class TranscriptService {
       throw new Error('Internal server error');
     }
 
-    const requestURL = `${apiURL}/metadata/${videoId}`;
+    const requestURL = `${apiURL}/metadata/${youtubeId}`;
 
     try {
-      const response = await axios.get(requestURL);
-      this.logger.debug(
-        `Received metadata for video ID ${videoId}: ${JSON.stringify(response.data)}`,
-      );
+      const response = await axios.get<YoutubeMetadataResponse>(requestURL);
+      this.logger.log(`Received metadata for YouTube ID ${youtubeId}`);
 
       return response.data;
     } catch (error: any) {
       this.logger.error(
-        `Failed to fetch metadata for video ID ${videoId}: ${error.message}`,
+        `Failed to fetch metadata for YouTube ID ${youtubeId}: ${error.message}`,
       );
       throw new Error('Failed to fetch metadata');
     }

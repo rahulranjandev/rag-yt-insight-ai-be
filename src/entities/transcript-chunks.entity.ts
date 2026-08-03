@@ -40,7 +40,7 @@ export class TranscriptChunk extends BaseEntity {
   @Index('transcript_chunks_embedding_hnsw_idx', { synchronize: false })
   @Column({
     type: 'vector',
-    length: 1536,
+    length: 2048, // nvidia/nemotron-3-embed-1b produces 2048-dimensional embeddings
   })
   embedding: number[];
 

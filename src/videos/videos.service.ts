@@ -46,7 +46,7 @@ export class VideosService {
   }
 
   public async createAnalyzedVideo(baseDto?: BaseVideoDto, userId?: string) {
-    if (userId) {
+    if (!userId) {
       throw new BadRequestException('Invalid user information');
     }
 
@@ -54,10 +54,6 @@ export class VideosService {
       userId,
       ...baseDto,
     });
-
-    if (!video) {
-      throw new BadRequestException('Failed to create video record');
-    }
 
     return this.videoRepository.save(video);
   }
@@ -148,6 +144,10 @@ export class VideosService {
 
     const jobRecord = await this.bullMqService.getJob(jobId);
 
+    this.logger.log(
+      `Retrieved job record ${JSON.stringify(jobRecord)} for user ${authUserId}`,
+    );
+
     if (!jobRecord) {
       throw new NotFoundException('Job not found');
     }
@@ -156,6 +156,11 @@ export class VideosService {
       throw new NotFoundException('Job not found');
     }
 
-    return jobRecord;
+    return {
+      jobId: jobRecord.id,
+      VideoId: jobRecord.returnvalue?.youtubeVideoId ?? null,
+      jobStatus: await this.bullMqService.getJobStatus(jobId),
+      jobName: jobRecord.name,
+    };
   }
 }

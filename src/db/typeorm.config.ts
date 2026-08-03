@@ -30,7 +30,7 @@ const ormConf: DataSourceOptions = {
   ...dataSourceOptions,
   entities,
   migrationsTableName: 'migrations',
-  migrations: ['src/migrations/*.ts', 'migrations/*.js'],
+  migrations: [join(__dirname, 'migrations', '*{.ts,.js}')],
   synchronize: false,
 };
 

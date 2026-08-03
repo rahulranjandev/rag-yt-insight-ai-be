@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource } from 'typeorm';
+import { Repository, DataSource } from 'typeorm';
 
 import { TranscriptChunk } from '@app/entities/transcript-chunks.entity';
 import { EmbeddingsService } from '../embeddings/embeddings.service';
@@ -12,6 +12,7 @@ export class ChunkService {
 
   constructor(
     @InjectRepository(TranscriptChunk)
+    private readonly transcriptChunkRepository: Repository<TranscriptChunk>,
     private readonly embeddingsService: EmbeddingsService,
     private readonly dataSource: DataSource,
   ) {}
@@ -33,7 +34,7 @@ export class ChunkService {
   async splitTranscript(transcript: string): Promise<string[]> {
     const cleanedTranscript = this.cleanText(transcript);
 
-    this.logger.debug(
+    this.logger.log(
       `Cleaned transcript length: ${cleanedTranscript.length} characters`,
     );
     if (!cleanedTranscript) {
@@ -47,11 +48,11 @@ export class ChunkService {
       separators: ['\n\n', '\n', '. ', '! ', '? ', ' ', ''],
     });
 
-    this.logger.debug(
+    this.logger.log(
       `Splitting transcript into chunks with chunk size 500 and overlap 100`,
     );
 
-    return splitter.splitText(transcript);
+    return splitter.splitText(cleanedTranscript);
   }
 
   async chunkAndEmbedTranscript(videoId: string, transcript: string) {
@@ -65,17 +66,20 @@ export class ChunkService {
       if (!content) continue;
 
       const embedding = await this.embeddingsService.embedText(content);
-      this.logger.debug(
+      this.logger.log(
         `Chunk ${i + 1}/${chunks.length} embedding generated for video ${videoId}`,
       );
 
+      // Use raw SQL to insert with pgvector casting — TypeORM doesn't support ::vector cast natively
       await this.dataSource.query(
         `
         INSERT INTO transcript_chunks (
           id,
-          video_id,
-          chunk_number,
+          "videoId",
+          "chunkIndex",
           content,
+          "startTime",
+          "endTime",
           embedding
         )
         VALUES (
@@ -83,10 +87,12 @@ export class ChunkService {
           $1,
           $2,
           $3,
-          $4::vector
+          $4,
+          $5,
+          $6::vector
         )
-        `,
-        [videoId, i + 1, content, this.toVectorString(embedding)],
+      `,
+        [videoId, i + 1, content, 0, 0, this.toVectorString(embedding)],
       );
     }
 
@@ -101,27 +107,22 @@ export class ChunkService {
 
   async getChunksByVideoId(videoId: string) {
     this.logger.log(`Fetching chunks for video ${videoId}`);
-    return this.dataSource.query(
-      `
-      SELECT
-        id,
-        video_id,
-        chunk_number,
-        content,
-        created_at
-      FROM transcript_chunks
-      WHERE video_id = $1
-      ORDER BY chunk_number ASC
-      `,
-      [videoId],
-    );
+
+    return await this.transcriptChunkRepository
+      .createQueryBuilder('chunk')
+      .select([
+        'chunk.id',
+        'chunk.videoId',
+        'chunk.chunkIndex',
+        'chunk.content',
+        'chunk.createdAt',
+      ])
+      .where('chunk.videoId = :videoId', { videoId })
+      .getMany();
   }
 
   async deleteChunksByVideoId(videoId: string): Promise<void> {
     this.logger.log(`Deleting chunks for video ${videoId}`);
-    await this.dataSource.query(
-      `DELETE FROM transcript_chunks WHERE video_id = $1`,
-      [videoId],
-    );
+    await this.transcriptChunkRepository.delete({ videoId });
   }
 }

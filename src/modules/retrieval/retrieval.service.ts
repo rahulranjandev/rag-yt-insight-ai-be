@@ -19,20 +19,15 @@ export class RetrievalService {
       `
       SELECT
         id,
-        video_id,
-        chunk_number,
+        "videoId",
+        "chunkIndex",
         content,
-
         1 - (
-          embedding <=> $1::vector
+          embedding::halfvec(2048) <=> $1::halfvec(2048)
         ) AS similarity
-
       FROM transcript_chunks
-
-      WHERE video_id = $2
-
-      ORDER BY embedding <=> $1::vector
-
+      WHERE "videoId" = $2
+      ORDER BY embedding::halfvec(2048) <=> $1::halfvec(2048)
       LIMIT $3
       `,
       [vectorString, videoId, limit],
@@ -63,14 +58,11 @@ export class RetrievalService {
       `
       SELECT
         id,
-        chunk_number,
+        "chunkIndex",
         content
-
       FROM transcript_chunks
-
-      WHERE video_id = $1
-
-      ORDER BY chunk_number
+      WHERE "videoId" = $1
+      ORDER BY "chunkIndex"
       `,
       [videoId],
     );

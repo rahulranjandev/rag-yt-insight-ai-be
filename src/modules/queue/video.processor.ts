@@ -1,5 +1,5 @@
 import { Logger } from '@nestjs/common';
-import { Processor, WorkerHost } from '@nestjs/bullmq';
+import { Processor, WorkerHost, OnWorkerEvent } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
 
 import { VideosService } from '@app/videos/videos.service';
@@ -32,63 +32,82 @@ export class VideoProcessor extends WorkerHost {
 
     const { userId, youtubeUrl } = job.data;
 
-    const ytMetadata = await this.transcriptService.fetchMetadata(youtubeUrl);
+    try {
+      // 1. Fetch metadata
+      const ytMetadata = await this.transcriptService.fetchMetadata(youtubeUrl);
 
-    this.logger.debug(
-      `Fetched metadata for ${youtubeUrl}: ${JSON.stringify(ytMetadata)}`,
-    );
+      if (!ytMetadata) {
+        throw new Error(`Metadata not found for URL: ${youtubeUrl}`);
+      }
 
-    const cleanedDescription = cleanDescription(ytMetadata.description);
-    this.logger.debug(`Cleaned description: ${cleanedDescription}`);
+      this.logger.log(`Fetched metadata for ${youtubeUrl}`);
 
-    if (!ytMetadata) {
-      this.logger.error(`Failed to fetch metadata for ${youtubeUrl}`);
-      throw new Error('Video metadata not found');
+      const cleanedDescription = cleanDescription(ytMetadata.description);
+
+      // 2. Persist video record
+      const youtubeVideo = await this.videosService.createAnalyzedVideo(
+        {
+          youtubeId: ytMetadata.youtubeId,
+          title: ytMetadata.title,
+          description: cleanedDescription,
+          duration: ytMetadata.duration,
+          channel: ytMetadata.channel,
+          thumbnail: ytMetadata.thumbnail,
+          transcriptStatus: 'processing',
+        },
+        userId,
+      );
+
+      this.logger.log(
+        `Created video record ${youtubeVideo.id} for YouTube video ${ytMetadata.youtubeId}`,
+      );
+
+      // 3. Fetch transcript
+      const transcriptResponse =
+        await this.transcriptService.fetchTranscript(youtubeUrl);
+
+      if (!transcriptResponse?.transcript) {
+        throw new Error(`Transcript not found for URL: ${youtubeUrl}`);
+      }
+
+      // The API returns transcript as an array of {text, start, duration} segments
+      const transcriptText = Array.isArray(transcriptResponse.transcript)
+        ? transcriptResponse.transcript
+            .map((segment: { text: string }) => segment.text)
+            .join(' ')
+        : String(transcriptResponse.transcript);
+
+      // 4. Chunk + embed
+      this.logger.log(
+        `Creating transcript chunks for video ${youtubeVideo.id} — transcript length: ${transcriptText.length} characters`,
+      );
+      const chunks = await this.chunkService.chunkAndEmbedTranscript(
+        youtubeVideo.id,
+        transcriptText,
+      );
+
+      // 5. Mark completed
+      await this.videosService.transcriptTaskCompleted(youtubeVideo.id);
+
+      this.logger.log(
+        `Completed job ${job.id} — video ${youtubeVideo.id}, ${chunks.chunkCount} chunks created`,
+      );
+
+      return { youtubeVideoId: youtubeVideo.id };
+    } catch (error: any) {
+      this.logger.error(
+        `Job ${job.id} failed (attempt ${job.attemptsMade + 1}/${job.opts.attempts ?? 1}): ${error.message}`,
+        error.stack,
+      );
+      throw error; // re-throw so BullMQ can retry / mark failed
     }
+  }
 
-    const youtubeVideo = await this.videosService.createAnalyzedVideo(
-      {
-        youtubeId: ytMetadata.youtubeId,
-        title: ytMetadata.title,
-        description: cleanedDescription,
-        duration: ytMetadata.duration,
-        channel: ytMetadata.channel,
-        thumbnail: ytMetadata.thumbnail,
-        transcriptStatus: 'processing',
-      },
-      userId,
+  @OnWorkerEvent('failed')
+  onFailed(job: Job, error: Error) {
+    this.logger.error(
+      `Job ${job.id} permanently failed after all attempts. URL: ${job.data?.youtubeUrl} — ${error.message}`,
+      error.stack,
     );
-
-    this.logger.log(
-      `Created video record with ID ${youtubeVideo.id} for YouTube video ${ytMetadata.youtubeId}`,
-    );
-
-    const youtubeTranscript =
-      await this.transcriptService.fetchTranscript(youtubeUrl);
-
-    if (!youtubeTranscript) {
-      this.logger.error(`Failed to fetch transcript for ${youtubeUrl}`);
-      throw new Error('Transcript not found');
-    }
-
-    // Create transcript chunks
-    this.logger.log(
-      `Creating transcript chunks for video ${youtubeVideo.id} - transcript length: ${youtubeTranscript.transcript.length} characters`,
-    );
-    const chunks = await this.chunkService.chunkAndEmbedTranscript(
-      youtubeVideo.id,
-      youtubeTranscript.transcript,
-    );
-
-    this.logger.log(
-      `Completed processing video job ${job.id} - created video record and ${chunks.chunkCount} transcript chunks for video ${youtubeVideo.id}`,
-    );
-
-    // Mark video as completed
-    await this.videosService.transcriptTaskCompleted(youtubeVideo.id);
-
-    return {
-      youtubeVideoId: youtubeVideo.id,
-    };
   }
 }

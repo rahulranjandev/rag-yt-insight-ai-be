@@ -1,4 +1,10 @@
-import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  Inject,
+  forwardRef,
+  OnModuleInit,
+} from '@nestjs/common';
 import { StateGraph, START, END } from '@langchain/langgraph';
 import { ChatOpenAI } from '@langchain/openai';
 
@@ -12,10 +18,10 @@ type CompiledGraph = ReturnType<
 >;
 
 @Injectable()
-export class LangGraphService {
+export class LangGraphService implements OnModuleInit {
   private readonly logger = new Logger(LangGraphService.name);
   private readonly llm: ChatOpenAI;
-  private graph: CompiledGraph;
+  private graph?: CompiledGraph;
 
   constructor(
     private readonly retrievalService: RetrievalService,
@@ -50,12 +56,25 @@ export class LangGraphService {
     });
   }
 
-  async run(input: GraphUpdate): Promise<GraphState> {
-    return this.graph.invoke(input);
+  async onModuleInit() {
+    await this.getGraph();
   }
 
-  async stream(input: GraphUpdate) {
-    return this.graph.stream(input);
+  async run(input: GraphUpdate): Promise<GraphState> {
+    const state = await this.getGraph().then((graph) => graph.invoke(input));
+    const response = await this.llm.invoke(this.buildPrompt(state));
+    return { ...state, answer: this.contentToText(response.content) };
+  }
+
+  async *stream(input: GraphUpdate): AsyncGenerator<string> {
+    const state = await this.getGraph().then((graph) => graph.invoke(input));
+
+    for await (const chunk of await this.llm.stream(this.buildPrompt(state))) {
+      const token = this.contentToText(chunk.content);
+      if (token) {
+        yield token;
+      }
+    }
   }
 
   // Graph Construction
@@ -65,11 +84,9 @@ export class LangGraphService {
     graph
       .addNode('loadHistory', (state) => this.loadHistoryNode(state))
       .addNode('retrieve', (state) => this.retrieveNode(state))
-      .addNode('answer', (state) => this.answerNode(state))
       .addEdge(START, 'loadHistory')
       .addEdge('loadHistory', 'retrieve')
-      .addEdge('retrieve', 'answer')
-      .addEdge('answer', END);
+      .addEdge('retrieve', END);
 
     return graph.compile();
   }
@@ -91,12 +108,39 @@ export class LangGraphService {
       state.videoId as string,
     );
 
-    return chunks;
+    return { chunks };
   }
 
-  private async answerNode(state: GraphState): Promise<GraphUpdate> {
-    const response = await this.llm.invoke(this.buildPrompt(state));
-    return { answer: response.content as string };
+  private async getGraph(): Promise<CompiledGraph> {
+    if (!this.graph) {
+      this.graph = await this.buildGraph();
+    }
+
+    return this.graph;
+  }
+
+  private contentToText(content: unknown): string {
+    if (typeof content === 'string') {
+      return content;
+    }
+
+    if (!Array.isArray(content)) {
+      return '';
+    }
+
+    return content
+      .map((part) => {
+        if (
+          typeof part === 'object' &&
+          part !== null &&
+          'text' in part &&
+          typeof part.text === 'string'
+        ) {
+          return part.text;
+        }
+        return '';
+      })
+      .join('');
   }
 
   // ─── Prompt Builder ────────────────────────────────────────────────────────
