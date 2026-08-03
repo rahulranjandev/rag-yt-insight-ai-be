@@ -67,7 +67,9 @@ export class LangGraphService implements OnModuleInit {
         apiKey,
       },
       model,
-      temperature: 0.2,
+      temperature: 1,
+      topP: 0.95,
+      maxTokens: 16384,
     });
   }
 
@@ -90,21 +92,42 @@ export class LangGraphService implements OnModuleInit {
     input: GraphUpdate,
     signal?: AbortSignal,
   ): AsyncGenerator<string> {
+    const streamStartedAt = Date.now();
     const graph = await this.getGraph();
     const state = await graph.invoke(input, { signal });
+    this.logger.log(
+      `Prepared chat stream for session ${input.sessionId} in ${Date.now() - streamStartedAt}ms`,
+    );
 
+    const llmStartedAt = Date.now();
     const llmStream = await this.llm.stream(this.buildPrompt(state), {
       signal,
     });
+    this.logger.log(
+      `Opened LLM stream for session ${input.sessionId} in ${Date.now() - llmStartedAt}ms`,
+    );
 
-    for await (const chunk of llmStream) {
-      if (signal?.aborted) {
-        return;
+    let firstTokenLogged = false;
+    try {
+      for await (const chunk of llmStream) {
+        if (signal?.aborted) {
+          return;
+        }
+        const token = this.contentToText(chunk.content);
+        if (token) {
+          if (!firstTokenLogged) {
+            firstTokenLogged = true;
+            this.logger.log(
+              `Received first LLM token for session ${input.sessionId} in ${Date.now() - streamStartedAt}ms`,
+            );
+          }
+          yield token;
+        }
       }
-      const token = this.contentToText(chunk.content);
-      if (token) {
-        yield token;
-      }
+    } finally {
+      this.logger.log(
+        `Finished LLM stream for session ${input.sessionId} in ${Date.now() - streamStartedAt}ms`,
+      );
     }
   }
 
@@ -123,6 +146,7 @@ export class LangGraphService implements OnModuleInit {
   }
 
   private async loadHistoryNode(state: GraphState): Promise<GraphUpdate> {
+    const startedAt = Date.now();
     try {
       const messages = await this.chatService.getSessionMessages(
         state.sessionId,
@@ -133,6 +157,9 @@ export class LangGraphService implements OnModuleInit {
         content: m.content,
       }));
 
+      this.logger.log(
+        `Loaded ${chatHistory.length} history messages for session ${state.sessionId} in ${Date.now() - startedAt}ms`,
+      );
       return { chatHistory };
     } catch (error) {
       this.logger.error(
@@ -145,12 +172,16 @@ export class LangGraphService implements OnModuleInit {
   }
 
   private async retrieveNode(state: GraphState): Promise<GraphUpdate> {
+    const startedAt = Date.now();
     try {
       const chunks = await this.retrievalService.searchByVideo(
         state.question,
         state.videoId as string,
       );
 
+      this.logger.log(
+        `Retrieved ${chunks.length} transcript chunks for session ${state.sessionId} in ${Date.now() - startedAt}ms`,
+      );
       return { chunks: chunks.slice(0, MAX_CHUNKS) };
     } catch (error) {
       this.logger.error(
