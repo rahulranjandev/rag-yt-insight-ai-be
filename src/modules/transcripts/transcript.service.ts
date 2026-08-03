@@ -28,7 +28,6 @@ export class TranscriptService {
 
   async fetchTranscript(url: string): Promise<YoutubeTranscriptResponse> {
     const youtubeId = extractYoutubeId(url);
-    this.logger.log(`Extracted YouTube ID: ${youtubeId} from URL: ${url}`);
 
     const apiURL = process.env.YOUTUBE_TRANSCRIPT_API_URL;
     if (!apiURL) {
@@ -55,7 +54,6 @@ export class TranscriptService {
 
   async fetchMetadata(url: string): Promise<YoutubeMetadataResponse> {
     const youtubeId = extractYoutubeId(url);
-    this.logger.log(`Extracted YouTube ID: ${youtubeId} from URL: ${url}`);
 
     const apiURL = process.env.YOUTUBE_TRANSCRIPT_API_URL;
     if (!apiURL) {

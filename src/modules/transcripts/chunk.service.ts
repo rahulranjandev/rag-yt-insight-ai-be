@@ -34,9 +34,6 @@ export class ChunkService {
   async splitTranscript(transcript: string): Promise<string[]> {
     const cleanedTranscript = this.cleanText(transcript);
 
-    this.logger.log(
-      `Cleaned transcript length: ${cleanedTranscript.length} characters`,
-    );
     if (!cleanedTranscript) {
       this.logger.warn('Transcript is empty after cleaning');
       return [];
@@ -48,15 +45,10 @@ export class ChunkService {
       separators: ['\n\n', '\n', '. ', '! ', '? ', ' ', ''],
     });
 
-    this.logger.log(
-      `Splitting transcript into chunks with chunk size 500 and overlap 100`,
-    );
-
     return splitter.splitText(cleanedTranscript);
   }
 
   async chunkAndEmbedTranscript(videoId: string, transcript: string) {
-    this.logger.log(`Chunking and embedding transcript for video ${videoId}`);
     const chunks = await this.splitTranscript(transcript);
 
     await this.deleteChunksByVideoId(videoId);
@@ -66,9 +58,6 @@ export class ChunkService {
       if (!content) continue;
 
       const embedding = await this.embeddingsService.embedText(content);
-      this.logger.log(
-        `Chunk ${i + 1}/${chunks.length} embedding generated for video ${videoId}`,
-      );
 
       // Use raw SQL to insert with pgvector casting — TypeORM doesn't support ::vector cast natively
       await this.dataSource.query(
@@ -122,7 +111,6 @@ export class ChunkService {
   }
 
   async deleteChunksByVideoId(videoId: string): Promise<void> {
-    this.logger.log(`Deleting chunks for video ${videoId}`);
     await this.transcriptChunkRepository.delete({ videoId });
   }
 }

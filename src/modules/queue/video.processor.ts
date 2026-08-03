@@ -28,8 +28,6 @@ export class VideoProcessor extends WorkerHost {
       return;
     }
 
-    this.logger.log(`Processing video job ${job.id}`);
-
     const { userId, youtubeUrl } = job.data;
 
     try {
@@ -39,8 +37,6 @@ export class VideoProcessor extends WorkerHost {
       if (!ytMetadata) {
         throw new Error(`Metadata not found for URL: ${youtubeUrl}`);
       }
-
-      this.logger.log(`Fetched metadata for ${youtubeUrl}`);
 
       const cleanedDescription = cleanDescription(ytMetadata.description);
 
@@ -56,10 +52,6 @@ export class VideoProcessor extends WorkerHost {
           transcriptStatus: 'processing',
         },
         userId,
-      );
-
-      this.logger.log(
-        `Created video record ${youtubeVideo.id} for YouTube video ${ytMetadata.youtubeId}`,
       );
 
       // 3. Fetch transcript
@@ -78,9 +70,6 @@ export class VideoProcessor extends WorkerHost {
         : String(transcriptResponse.transcript);
 
       // 4. Chunk + embed
-      this.logger.log(
-        `Creating transcript chunks for video ${youtubeVideo.id} — transcript length: ${transcriptText.length} characters`,
-      );
       const chunks = await this.chunkService.chunkAndEmbedTranscript(
         youtubeVideo.id,
         transcriptText,

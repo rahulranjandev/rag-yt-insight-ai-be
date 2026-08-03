@@ -18,6 +18,8 @@ This is a NestJS TypeScript API for video insight, retrieval, chat, queues, and 
 
 Use TypeScript and NestJS conventions: modules as `*.module.ts`, services as `*.service.ts`, controllers as `*.controller.ts`, DTOs under `dto/`, and entities as `*.entity.ts`. Prettier requires single quotes and trailing commas. ESLint forbids `console` usage and enforces TypeORM column, relation, and nullability rules; use the Winston logger instead. Prefer dependency injection through Nest providers and keep module-specific logic inside its feature directory.
 
+For cancellable streaming, keep `AbortSignal` separate from domain input objects. For example, `LangGraphService.stream` accepts `stream(input: GraphUpdate, signal?: AbortSignal)`, so call it as `stream(graphUpdate, signal)` rather than adding `signal` to `GraphUpdate`.
+
 ## Testing Guidelines
 
 Jest is configured for `*.spec.ts` files under `src/`, with e2e tests in `test/`. Add focused unit tests next to new services, controllers, guards, or processors. Run `npm run test` before opening changes and `npm run test:e2e` for endpoint or module wiring changes. For persistence or queue changes, cover success and failure paths where practical.

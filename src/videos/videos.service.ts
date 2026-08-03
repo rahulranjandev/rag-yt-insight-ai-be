@@ -33,10 +33,6 @@ export class VideosService {
       youtubeUrl: dto.youtubeUrl,
     });
 
-    this.logger.log(
-      `Enqueued video processing job ${JSON.stringify(job)} for user ${authUser.id}`,
-    );
-
     return {
       success: true,
       jobId: job.id,
@@ -143,10 +139,6 @@ export class VideosService {
     }
 
     const jobRecord = await this.bullMqService.getJob(jobId);
-
-    this.logger.log(
-      `Retrieved job record ${JSON.stringify(jobRecord)} for user ${authUserId}`,
-    );
 
     if (!jobRecord) {
       throw new NotFoundException('Job not found');

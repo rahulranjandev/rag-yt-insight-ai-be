@@ -12,16 +12,31 @@ import { GraphAnnotation, GraphState, GraphUpdate } from './graph.types';
 import { RetrievalService } from '../retrieval/retrieval.service';
 import { ChatService } from '@app/chat/chat.service';
 import { VideosService } from '@app/videos/videos.service';
+import {
+  AIMessage,
+  BaseMessage,
+  HumanMessage,
+  SystemMessage,
+} from '@langchain/core/messages';
 
 type CompiledGraph = ReturnType<
   StateGraph<typeof GraphAnnotation.spec>['compile']
 >;
+
+const SYSTEM_PROMPT = `You answer questions only using the provided YouTube transcript context.
+If the answer is not in the context, say you could not find it in the video.
+Keep the response grounded and concise. Do not make assumptions.`;
+
+// Bound how much history/context we feed the model per turn.
+const MAX_HISTORY_MESSAGES = 12;
+const MAX_CHUNKS = 8;
 
 @Injectable()
 export class LangGraphService implements OnModuleInit {
   private readonly logger = new Logger(LangGraphService.name);
   private readonly llm: ChatOpenAI;
   private graph?: CompiledGraph;
+  private graphPromise?: Promise<CompiledGraph>;
 
   constructor(
     private readonly retrievalService: RetrievalService,
@@ -60,16 +75,32 @@ export class LangGraphService implements OnModuleInit {
     await this.getGraph();
   }
 
-  async run(input: GraphUpdate): Promise<GraphState> {
-    const state = await this.getGraph().then((graph) => graph.invoke(input));
-    const response = await this.llm.invoke(this.buildPrompt(state));
+  async run(input: GraphUpdate, signal?: AbortSignal): Promise<GraphState> {
+    const graph = await this.getGraph();
+    const state = await graph.invoke(input, { signal });
+
+    const response = await this.llm.invoke(this.buildPrompt(state), {
+      signal,
+    });
+
     return { ...state, answer: this.contentToText(response.content) };
   }
 
-  async *stream(input: GraphUpdate): AsyncGenerator<string> {
-    const state = await this.getGraph().then((graph) => graph.invoke(input));
+  async *stream(
+    input: GraphUpdate,
+    signal?: AbortSignal,
+  ): AsyncGenerator<string> {
+    const graph = await this.getGraph();
+    const state = await graph.invoke(input, { signal });
 
-    for await (const chunk of await this.llm.stream(this.buildPrompt(state))) {
+    const llmStream = await this.llm.stream(this.buildPrompt(state), {
+      signal,
+    });
+
+    for await (const chunk of llmStream) {
+      if (signal?.aborted) {
+        return;
+      }
       const token = this.contentToText(chunk.content);
       if (token) {
         yield token;
@@ -92,23 +123,43 @@ export class LangGraphService implements OnModuleInit {
   }
 
   private async loadHistoryNode(state: GraphState): Promise<GraphUpdate> {
-    const messages = await this.chatService.getSessionMessages(state.sessionId);
+    try {
+      const messages = await this.chatService.getSessionMessages(
+        state.sessionId,
+      );
 
-    const chatHistory = messages.map((m) => ({
-      role: m.role as 'user' | 'assistant',
-      content: m.content,
-    }));
+      const chatHistory = messages.slice(-MAX_HISTORY_MESSAGES).map((m) => ({
+        role: m.role as 'user' | 'assistant',
+        content: m.content,
+      }));
 
-    return { chatHistory };
+      return { chatHistory };
+    } catch (error) {
+      this.logger.error(
+        `Failed to load history for session ${state.sessionId}`,
+        (error as Error).stack,
+      );
+      // Degrade gracefully rather than failing the whole request over history.
+      return { chatHistory: [] };
+    }
   }
 
   private async retrieveNode(state: GraphState): Promise<GraphUpdate> {
-    const chunks = await this.retrievalService.searchByVideo(
-      state.question,
-      state.videoId as string,
-    );
+    try {
+      const chunks = await this.retrievalService.searchByVideo(
+        state.question,
+        state.videoId as string,
+      );
 
-    return { chunks };
+      return { chunks: chunks.slice(0, MAX_CHUNKS) };
+    } catch (error) {
+      this.logger.error(
+        `Retrieval failed for video ${state.videoId}`,
+        (error as Error).stack,
+      );
+      // Let the LLM answer "not found in context" rather than hard-failing.
+      return { chunks: [] };
+    }
   }
 
   private async getGraph(): Promise<CompiledGraph> {
@@ -145,18 +196,25 @@ export class LangGraphService implements OnModuleInit {
 
   // ─── Prompt Builder ────────────────────────────────────────────────────────
 
-  private buildPrompt(state: GraphState): string {
-    return `
-You answer questions only using the provided YouTube transcript context. If the answer is not in the context, say you could not find it in the video. Keep the response grounded and concise. Always use all available information to answer the question. Do not make assumptions. If you don't know the answer, say you don't know.
+  private buildPrompt(state: GraphState): BaseMessage[] {
+    const transcriptContext = state.chunks?.length
+      ? state.chunks
+          .map((chunk, i) => `[${i + 1}] ${JSON.stringify(chunk)}`)
+          .join('\n')
+      : 'No relevant transcript chunks were found for this question.';
 
-Question:
-${state.question}
+    const historyMessages: BaseMessage[] = (state.chatHistory ?? []).map((m) =>
+      m.role === 'user'
+        ? new HumanMessage(m.content)
+        : new AIMessage(m.content),
+    );
 
-Chat history:
-${JSON.stringify(state.chatHistory ?? [])}
-
-Retrieved transcript chunks:
-${JSON.stringify(state.chunks ?? [])}
-    `.trim();
+    return [
+      new SystemMessage(
+        `${SYSTEM_PROMPT}\n\nRetrieved transcript chunks:\n${transcriptContext}`,
+      ),
+      ...historyMessages,
+      new HumanMessage(state.question),
+    ];
   }
 }

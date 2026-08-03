@@ -40,18 +40,14 @@ export class EmbeddingsService {
   }
 
   async embedText(text: string): Promise<number[]> {
-    this.logger.log(`Embedding text: ${text.length} characters`);
     const cleaned = this.cleanText(text);
     if (!cleaned) return [];
-    this.logger.log(`Done text length: ${cleaned.length} characters`);
     return this.embeddings.embedQuery(cleaned);
   }
 
   async embedDocuments(texts: string[]): Promise<number[][]> {
-    this.logger.log(`Embedding ${texts.length} documents`);
     const cleanedTexts = texts.map((t) => this.cleanText(t)).filter(Boolean);
     if (cleanedTexts.length === 0) return [];
-    this.logger.log(`Done embedding ${cleanedTexts.length} documents`);
     return this.embeddings.embedDocuments(cleanedTexts);
   }
 
