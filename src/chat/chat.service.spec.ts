@@ -72,10 +72,7 @@ describe('ChatService', () => {
     sessionRepository.save.mockImplementation(async (input) => input);
 
     await expect(
-      service.createSessionForUser(
-        { videoId: session.videoId },
-        session.userId,
-      ),
+      service.createNewSessionForUser(session.videoId, '  ', session.userId),
     ).resolves.toMatchObject({
       userId: session.userId,
       videoId: session.videoId,
@@ -93,7 +90,7 @@ describe('ChatService', () => {
   it('throws BadRequestException if videoId is missing', async () => {
     const { service } = createService();
     await expect(
-      service.createSessionForUser({} as any, session.userId),
+      service.createNewSessionForUser('', 'Video title', session.userId),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
@@ -114,11 +111,14 @@ describe('ChatService', () => {
       write,
       end,
     } as unknown as Response;
+    const abortController = new AbortController();
 
     await service.streamResponse(
-      { sessionId: session.id, question: 'Hi' },
+      session.id,
+      'Hi',
       session.userId,
       response,
+      abortController.signal,
     );
 
     expect(write).toHaveBeenNthCalledWith(
@@ -137,25 +137,32 @@ describe('ChatService', () => {
       role: 'assistant',
       content: 'Hello world',
     });
+    expect(langGraphService.stream).toHaveBeenCalledWith(
+      {
+        sessionId: session.id,
+        question: 'Hi',
+        videoId: session.videoId,
+      },
+      abortController.signal,
+    );
     expect(end).toHaveBeenCalledTimes(1);
   });
 
-  it('rejects a video ID that differs from the session video', async () => {
+  it('returns an SSE error without querying a session for an empty question', async () => {
     const { service, sessionRepository, langGraphService } = createService();
-    sessionRepository.findOne.mockResolvedValue(session);
+    const write = jest.fn();
+    const end = jest.fn();
 
-    await expect(
-      service.streamResponse(
-        {
-          sessionId: session.id,
-          question: 'Hi',
-          videoId: 'a1a0f0f0-1213-4d64-a9fe-f6e28f3a4929',
-        },
-        session.userId,
-        { write: jest.fn(), end: jest.fn() } as unknown as Response,
-      ),
-    ).rejects.toBeInstanceOf(BadRequestException);
+    await service.streamResponse(session.id, '   ', session.userId, {
+      write,
+      end,
+    } as unknown as Response);
 
+    expect(write).toHaveBeenCalledWith(
+      'event: error\ndata: {"message":"question is required"}\n\n',
+    );
+    expect(end).toHaveBeenCalledTimes(1);
+    expect(sessionRepository.findOne).not.toHaveBeenCalled();
     expect(langGraphService.stream).not.toHaveBeenCalled();
   });
 });

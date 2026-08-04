@@ -1,0 +1,18 @@
+services:
+  api-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: rag-video-insights-api-server:latest
+    container_name: rag-video-insights-api-server
+    restart: unless-stopped
+    ports:
+      - 3333:3333
+    env_file: .env
+    networks:
+      - rag-video-insights-network
+
+networks:
+  rag-video-insights-network:
+    driver: bridge
+    external: true

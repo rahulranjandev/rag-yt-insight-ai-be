@@ -30,6 +30,7 @@ export class TranscriptService {
     const youtubeId = extractYoutubeId(url);
 
     const apiURL = process.env.YOUTUBE_TRANSCRIPT_API_URL;
+    this.logger.log(`Youtube Transcript API URL: ${apiURL}`);
     if (!apiURL) {
       this.logger.error(
         'YOUTUBE_TRANSCRIPT_API_URL is not defined in environment variables',
@@ -56,6 +57,7 @@ export class TranscriptService {
     const youtubeId = extractYoutubeId(url);
 
     const apiURL = process.env.YOUTUBE_TRANSCRIPT_API_URL;
+    this.logger.log(`Youtube Transcript API URL: ${apiURL}`);
     if (!apiURL) {
       this.logger.error(
         'YOUTUBE_TRANSCRIPT_API_URL is not defined in environment variables',

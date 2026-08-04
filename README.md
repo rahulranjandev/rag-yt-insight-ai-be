@@ -1,98 +1,120 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# RAG Video Insight API
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+A NestJS API that analyzes YouTube and Instagram videos, stores transcript chunks, retrieves relevant context with vector search, and answers questions about a video through regular and streamed chat endpoints.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+## Prerequisites
 
-## Description
+- Node.js 20 or later
+- PostgreSQL with the `vector` extension enabled
+- Redis (used by BullMQ processing)
+- An OpenAI-compatible chat endpoint and an embeddings endpoint
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+## Setup
 
-## Project setup
+Install dependencies:
 
 ```bash
-$ npm install
+npm install
 ```
 
-## Compile and run the project
+Create a local `.env` file. Do not commit it. At minimum, configure:
+
+```dotenv
+PORT=3000
+ALLOWED_ORIGINS=http://localhost:3001
+
+DB_HOST=localhost
+DB_PORT=5432
+DB_USER=postgres
+DB_PASSWORD=postgres
+DB_NAME=rag_video_insight
+
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_PASSWORD=
+REDIS_DB=0
+REDIS_ENABLED=true
+
+WEB_JWT_ACCESS_TOKEN_SECRET=replace-with-a-long-random-secret
+WEB_ACCESS_TOKEN_EXPIRATION_TIME=15m
+WEB_JWT_REFRESH_TOKEN_SECRET=replace-with-a-different-long-random-secret
+WEB_JWT_REFRESH_TOKEN_EXPIRATION_TIME=7d
+
+OPENAI_BASE_URL=https://your-openai-compatible-endpoint/v1
+OPENAI_API_KEY=your-chat-api-key
+OPENAI_MODEL=your-chat-model
+
+OPENROUTER_EMBEDDING_BASE_URL=https://your-embedding-endpoint/v1
+OPENROUTER_API_KEY=your-embedding-api-key
+OPENROUTER_EMBEDDING_MODEL=your-embedding-model
+
+YOUTUBE_TRANSCRIPT_API_URL=https://your-transcript-service
+```
+
+Run database migrations before starting the API:
 
 ```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+npm run migrate
+npm run start:dev
 ```
 
-## Run tests
+The API is available at `http://localhost:3000`. Swagger UI is available at `http://localhost:3000/api-docs`.
+
+## Docker Compose
+
+Docker Compose starts the API. Keep the LLM, embeddings, JWT, and transcript settings in `.env`; Compose replaces the database and Redis host settings with its local services.
 
 ```bash
-# unit tests
-$ npm run test
+# Start the API
+docker compose up --build -d 
 
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
+# Follow API logs
+docker compose logs -f api
 ```
 
-## Deployment
-
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+## Commands
 
 ```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+npm run start:dev  # Run in watch mode
+npm run build      # Compile to dist/
+npm run start:prod # Run compiled output
+npm run test       # Unit tests
+npm run test:e2e   # End-to-end tests
+npm run migrate    # Apply TypeORM migrations
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+## API overview
 
-## Resources
+All routes except registration, login, and health checks require a bearer token. The global route prefix is `/api/v1`.
 
-Check out a few resources that may come in handy when working with NestJS:
+- `POST /api/v1/auth/register` — create an account.
+- `POST /api/v1/auth/login` — obtain access and refresh tokens.
+- `POST /api/v1/videos/analyze` — queue a YouTube or Instagram video for analysis.
+- `GET /api/v1/videos/status/:jobId` — check an analysis job.
+- `POST /api/v1/chat/sessions/:videoUid` — create a chat session for an analyzed video.
+- `POST /api/v1/chat/stream/:sessionId` — stream a grounded answer as Server-Sent Events.
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+For streamed chat responses, keep the connection open and consume SSE events as they arrive:
 
-## Support
+```bash
+curl -N -X POST "http://localhost:3000/api/v1/chat/stream/<session-id>" \
+  -H "Authorization: Bearer <access-token>" \
+  -H "Content-Type: application/json" \
+  --data '{"question":"What are the main points?"}'
+```
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+The stream emits `token`, `done`, and `error` events. Time to first token includes chat-history loading, vector retrieval, and the configured LLM provider's response time.
 
-## Stay in touch
+## Testing
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+Unit tests run without external infrastructure:
 
-## License
+```bash
+npm run test
+```
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+End-to-end tests require reachable PostgreSQL and Redis instances matching the active test environment. Use isolated test credentials or override infrastructure providers in the test module; do not point tests at production services.
+
+## Security
+
+Keep `.env`, API keys, JWT secrets, and database credentials out of version control. Set `ALLOWED_ORIGINS` to trusted frontend origins in deployed environments and use separate credentials for development, testing, and production.
