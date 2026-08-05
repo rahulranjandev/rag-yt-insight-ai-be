@@ -15,8 +15,6 @@ import { EmbeddingsModule } from '../embeddings/embeddings.module';
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
         connection: {
-          // Prefer the complete URL so credentials, TLS, and database number
-          // are not lost for hosted Redis instances.
           ...(configService.get<string>('redis.url')
             ? { url: configService.getOrThrow<string>('redis.url') }
             : {

@@ -97,7 +97,6 @@ export class ChatService {
       const message = this.messageRepository.create(input);
       return await this.messageRepository.save(message);
     } catch (error) {
-      // Don't let a persistence failure take down an in-flight stream/response.
       this.logger.error(
         `Failed to save ${input.role} message for session ${input.sessionId}`,
         (error as Error).stack,
@@ -215,8 +214,6 @@ export class ChatService {
         );
       }
     } finally {
-      // Persist whatever was generated, even on error/abort, so the
-      // conversation history matches what the user actually saw.
       if (answer.trim()) {
         await this.saveMessage({
           sessionId: session.id,

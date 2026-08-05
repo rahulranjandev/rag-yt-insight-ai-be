@@ -42,8 +42,7 @@ export class VideoProcessor extends WorkerHost {
 
       const cleanedDescription = cleanDescription(ytMetadata.description);
 
-      // 2. Persist the video once. Keeping its ID in the job data prevents a
-      // BullMQ retry from inserting duplicate rows.
+      // 2. Persist the video once.
       let videoId = job.data.videoId;
       if (!videoId) {
         const youtubeVideo = await this.videosService.createAnalyzedVideo(
@@ -71,7 +70,6 @@ export class VideoProcessor extends WorkerHost {
         throw new Error(`Transcript not found for URL: ${youtubeUrl}`);
       }
 
-      // The API returns transcript as an array of {text, start, duration} segments
       const transcriptText = Array.isArray(transcriptResponse.transcript)
         ? transcriptResponse.transcript
             .map((segment: { text: string }) => segment.text)
