@@ -61,6 +61,12 @@ export class VideosController {
     return this.videosService.getJobStatus(jobId, authUser);
   }
 
+  @Get()
+  @ApiOperation({ summary: 'Get all analyzed videos for authenticated user' })
+  async findAllVideosForUser(@AuthUser() userId: string) {
+    return this.videosService.findAllVideosForUser(userId);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Get analyzed video by ID' })
   @ApiParam({

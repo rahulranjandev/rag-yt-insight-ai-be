@@ -46,6 +46,7 @@ export class LangGraphService implements OnModuleInit {
     private readonly videosService: VideosService,
   ) {
     const model = process.env.OPENAI_MODEL;
+    this.logger.log(`Using OpenAI model: ${model}`);
     if (!model) {
       throw new Error('OPENAI_MODEL is not set');
     }
@@ -68,8 +69,7 @@ export class LangGraphService implements OnModuleInit {
       },
       model,
       temperature: 1,
-      topP: 0.95,
-      maxTokens: 16384,
+      topP: 1,
     });
   }
 
