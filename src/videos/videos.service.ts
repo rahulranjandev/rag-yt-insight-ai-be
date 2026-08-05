@@ -36,7 +36,7 @@ export class VideosService {
     return {
       success: true,
       jobId: job.id,
-      jobStatus: job.getState(),
+      jobStatus: await job.getState(),
       jobName: job.name,
     };
   }
@@ -150,7 +150,10 @@ export class VideosService {
 
     return {
       jobId: jobRecord.id,
-      VideoId: jobRecord.returnvalue?.youtubeVideoId ?? null,
+      videoId:
+        jobRecord.returnvalue?.youtubeVideoId ??
+        jobRecord.data?.videoId ??
+        null,
       jobStatus: await this.bullMqService.getJobStatus(jobId),
       jobName: jobRecord.name,
     };

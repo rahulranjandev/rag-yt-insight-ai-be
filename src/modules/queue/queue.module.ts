@@ -1,5 +1,6 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { QUEUE_NAME } from './queue.constants';
 import { VideoProcessor } from './video.processor';
 import { BullMqService } from './bullmq.service';
@@ -9,14 +10,24 @@ import { EmbeddingsModule } from '../embeddings/embeddings.module';
 
 @Module({
   imports: [
-    BullModule.forRoot({
-      connection: {
-        host: process.env.REDIS_HOST || 'localhost',
-        port: Number(process.env.REDIS_PORT || 6379),
-        password: process.env.REDIS_PASSWORD || undefined,
-        db: Number(process.env.REDIS_DB || 0),
-        maxRetriesPerRequest: null,
-      },
+    BullModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => ({
+        connection: {
+          // Prefer the complete URL so credentials, TLS, and database number
+          // are not lost for hosted Redis instances.
+          ...(configService.get<string>('redis.url')
+            ? { url: configService.getOrThrow<string>('redis.url') }
+            : {
+                host: configService.get<string>('redis.host', 'localhost'),
+                port: configService.get<number>('redis.port', 6379),
+                password: configService.get<string>('redis.password'),
+                db: configService.get<number>('redis.db', 0),
+              }),
+          maxRetriesPerRequest: null,
+        },
+      }),
     }),
     BullModule.registerQueue({
       name: QUEUE_NAME,

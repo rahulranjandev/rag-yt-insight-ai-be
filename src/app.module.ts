@@ -13,6 +13,7 @@ import { AuthModule } from '@app/auth/auth.module';
 import { VideosModule } from '@app/videos/videos.module';
 import { ChatModule } from './chat/chat.module';
 import { RetrievalModule } from './modules/retrieval/retrieval.module';
+import { RedisModule } from './modules/redis/redis.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { RetrievalModule } from './modules/retrieval/retrieval.module';
     VideosModule,
     ChatModule,
     RetrievalModule,
+    RedisModule,
   ],
   providers: [
     {

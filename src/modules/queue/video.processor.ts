@@ -21,7 +21,7 @@ export class VideoProcessor extends WorkerHost {
   }
 
   async process(
-    job: Job<{ userId: string; youtubeUrl: string }>,
+    job: Job<{ userId: string; youtubeUrl: string; videoId?: string }>,
   ): Promise<any> {
     if (job.name !== VIDEO_PROCESS_JOB) {
       this.logger.log(`Skipping unknown job type: ${job.name}`);
@@ -31,6 +31,8 @@ export class VideoProcessor extends WorkerHost {
     const { userId, youtubeUrl } = job.data;
 
     try {
+      await job.updateProgress({ stage: 'fetching_metadata' });
+
       // 1. Fetch metadata
       const ytMetadata = await this.transcriptService.fetchMetadata(youtubeUrl);
 
@@ -40,21 +42,28 @@ export class VideoProcessor extends WorkerHost {
 
       const cleanedDescription = cleanDescription(ytMetadata.description);
 
-      // 2. Persist video record
-      const youtubeVideo = await this.videosService.createAnalyzedVideo(
-        {
-          youtubeId: ytMetadata.youtubeId,
-          title: ytMetadata.title,
-          description: cleanedDescription,
-          duration: ytMetadata.duration,
-          channel: ytMetadata.channel,
-          thumbnail: ytMetadata.thumbnail,
-          transcriptStatus: 'processing',
-        },
-        userId,
-      );
+      // 2. Persist the video once. Keeping its ID in the job data prevents a
+      // BullMQ retry from inserting duplicate rows.
+      let videoId = job.data.videoId;
+      if (!videoId) {
+        const youtubeVideo = await this.videosService.createAnalyzedVideo(
+          {
+            youtubeId: ytMetadata.youtubeId,
+            title: ytMetadata.title,
+            description: cleanedDescription,
+            duration: ytMetadata.duration,
+            channel: ytMetadata.channel,
+            thumbnail: ytMetadata.thumbnail,
+            transcriptStatus: 'processing',
+          },
+          userId,
+        );
+        videoId = youtubeVideo.id;
+        await job.updateData({ ...job.data, videoId });
+      }
 
       // 3. Fetch transcript
+      await job.updateProgress({ stage: 'fetching_transcript', videoId });
       const transcriptResponse =
         await this.transcriptService.fetchTranscript(youtubeUrl);
 
@@ -70,20 +79,42 @@ export class VideoProcessor extends WorkerHost {
         : String(transcriptResponse.transcript);
 
       // 4. Chunk + embed
+      await job.updateProgress({ stage: 'embedding_transcript', videoId });
       const chunks = await this.chunkService.chunkAndEmbedTranscript(
-        youtubeVideo.id,
+        videoId,
         transcriptText,
       );
 
       // 5. Mark completed
-      await this.videosService.transcriptTaskCompleted(youtubeVideo.id);
+      await this.videosService.transcriptTaskCompleted(videoId);
+      await job.updateProgress({ stage: 'completed', videoId });
 
       this.logger.log(
-        `Completed job ${job.id} — video ${youtubeVideo.id}, ${chunks.chunkCount} chunks created`,
+        `Completed job ${job.id} — video ${videoId}, ${chunks.chunkCount} chunks created`,
       );
 
-      return { youtubeVideoId: youtubeVideo.id };
+      return { youtubeVideoId: videoId };
     } catch (error: any) {
+      const isFinalAttempt = job.attemptsMade + 1 >= (job.opts.attempts ?? 1);
+
+      if (job.data.videoId && isFinalAttempt) {
+        try {
+          await this.videosService.markVideoFailed(
+            job.data.videoId,
+            error.message,
+          );
+          await job.updateProgress({
+            stage: 'failed',
+            videoId: job.data.videoId,
+          });
+        } catch (statusError: any) {
+          this.logger.error(
+            `Could not mark video ${job.data.videoId} as failed: ${statusError.message}`,
+            statusError.stack,
+          );
+        }
+      }
+
       this.logger.error(
         `Job ${job.id} failed (attempt ${job.attemptsMade + 1}/${job.opts.attempts ?? 1}): ${error.message}`,
         error.stack,
